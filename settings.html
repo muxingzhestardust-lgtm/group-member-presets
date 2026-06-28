@@ -13,6 +13,43 @@
                 Select a group, then assign presets for each member below. Empty values keep the current preset.
                 Presets are restored after the group generation finishes.
             </small>
+            <hr />
+            <h4>Action Analysis API</h4>
+            <small>
+                Used only by Director Mode's Analyze Action step. This does not use the current SillyTavern API connection or AI Response Configuration preset.
+            </small>
+            <label for="group_member_presets_analysis_endpoint">Endpoint</label>
+            <input id="group_member_presets_analysis_endpoint" class="text_pole" type="text" placeholder="https://api.example.com/v1/chat/completions" />
+            <label for="group_member_presets_analysis_key">Key</label>
+            <input id="group_member_presets_analysis_key" class="text_pole" type="password" autocomplete="off" placeholder="Bearer token value" />
+            <label for="group_member_presets_analysis_model">Model name</label>
+            <input id="group_member_presets_analysis_model" class="text_pole" type="text" placeholder="model-name" />
+            <label for="group_member_presets_analysis_body_params">Body parameters</label>
+            <textarea id="group_member_presets_analysis_body_params" class="text_pole textarea_compact" rows="5" placeholder='{"temperature":0.2}'></textarea>
+            <small>JSON object merged into the request body. The plugin always supplies OpenAI-compatible <code>messages</code>.</small>
+            <label for="group_member_presets_analysis_exclude_body_params">Exclude body parameters</label>
+            <textarea id="group_member_presets_analysis_exclude_body_params" class="text_pole textarea_compact" rows="2" placeholder="stream, max_tokens"></textarea>
+            <small>Comma or newline separated keys removed from the final request body.</small>
+            <label for="group_member_presets_analysis_include_tags">Include tag rules</label>
+            <textarea id="group_member_presets_analysis_include_tags" class="text_pole textarea_compact" rows="3" placeholder="&lt;content&gt; =&gt; &lt;/content&gt;&#10;[content] =&gt; /content"></textarea>
+            <small>If set, only text between matching start/end markers is injected into <code>{{worldInfo}}</code> and <code>{{context}}</code>. One rule per line: <code>start =&gt; end</code>. A single value like <code>content</code> still means <code>&lt;content&gt;...&lt;/content&gt;</code>.</small>
+            <label for="group_member_presets_analysis_exclude_tags">Exclude tag rules</label>
+            <textarea id="group_member_presets_analysis_exclude_tags" class="text_pole textarea_compact" rows="3" placeholder="&lt;thinking&gt; =&gt; &lt;/thinking&gt;&#10;[metadata] =&gt; /metadata"></textarea>
+            <small>Matching start/end marker blocks and their inner text are removed before injection. One rule per line: <code>start =&gt; end</code>.</small>
+            <label>Analysis prompt messages</label>
+            <small>
+                Messages are sent in order. Supported macros: <code>{{worldInfo}}</code>, <code>{{context}}</code>, <code>{{format}}</code>, <code>{{characters}}</code>, and <code>{{input}}</code>.
+            </small>
+            <div id="group_member_presets_analysis_prompt_messages" class="flex-container flexFlowColumn flexGap5"></div>
+            <div class="flex-container flexGap5 marginTopBot5">
+                <div id="group_member_presets_analysis_prompt_add" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-plus"></i><span>Add message</span>
+                </div>
+                <div id="group_member_presets_analysis_prompt_reset" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-rotate-left"></i><span>Restore defaults</span>
+                </div>
+            </div>
+            <hr />
             <div class="marginTopBot5">
                 <div id="group_member_presets_refresh" class="menu_button menu_button_icon">
                     <i class="fa-solid fa-arrows-rotate"></i>

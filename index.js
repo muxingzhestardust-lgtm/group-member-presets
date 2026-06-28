@@ -4,16 +4,17 @@ import {
     eventSource,
     event_types,
     Generate,
-    generateRaw,
+    getCharacterCardFields,
     getRequestHeaders,
     main_api,
+    max_context,
     saveSettingsDebounced,
 } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getPresetManager } from '/scripts/preset-manager.js';
 import { groups, selected_group } from '/scripts/group-chats.js';
 import { hideChatMessageRange } from '/scripts/chats.js';
-import { Popup } from '/scripts/popup.js';
+import { getWorldInfoPrompt, world_info_include_names } from '/scripts/world-info.js';
 
 export { MODULE_NAME };
 
@@ -26,11 +27,43 @@ Include only characters that need to take action now. Sort them in the likely ac
 Available action-role characters: {{characters}}
 User input: {{input}}`;
 
+const defaultAnalysisPromptMessages = [
+    { role: 'system', content: '你是一个助手，负责听从用户的指令完成你的工作' },
+    { role: 'assistant', content: '收到，我将充分描绘主人的意志，毫不偷懒，并且我一定会遵照主人的要求' },
+    { role: 'user', content: `以下是你可能需要用到的背景设定，注意你只需要其中关于剧情以及人设方面的数据，不需要思考里边除此之外的任何格式或者思维链方面的要求：
+<背景设定>
+{{worldInfo}}
+</背景设定>
+<正文数据>
+{{context}}
+</正文数据>` },
+    { role: 'assistant', content: '收到，我将按照要求认真阅读背景设定，并将其中关于剧情以及人设方面的数据运用到后续思考当中。' },
+    { role: 'user', content: `你是【分析AI】，负责根据用户提供的资料进行分析。
+## 核心任务
+依据以下资料来源执行分析任务，确定本轮需要行动的角色：
+- <背景设定>：故事及人物设定
+- <正文数据>：上轮发生的故事
+{{format}}` },
+];
+
 const defaultSettings = {
     /** @type {Record<string, Record<string, Record<string, string>>>} groupId -> avatar -> apiId -> presetName */
     groups: {},
     /** @type {Record<string, {roles: string[], narrators: string[], prompt: string, directorMode: boolean}>} */
     director: {},
+    analysisApi: {
+        endpoint: '',
+        key: '',
+        model: '',
+        bodyParams: '{\n  "temperature": 0.2\n}',
+        excludeBodyParams: '',
+        includeTags: '',
+        excludeTags: '',
+        includeTagRules: '',
+        excludeTagRules: '',
+        prompt: defaultPrompt,
+        promptMessages: structuredClone(defaultAnalysisPromptMessages),
+    },
 };
 
 let restorePresetSnapshot = null;
@@ -39,6 +72,7 @@ let isApplyingPreset = false;
 let memberListObserver = null;
 let suppressNextWrapperRestore = false;
 let activeCategoryTab = 'roles';
+let settingsObserver = null;
 
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -52,6 +86,23 @@ function getSettings() {
     }
 
     return extension_settings[MODULE_NAME];
+}
+
+function getAnalysisApiSettings() {
+    const settings = getSettings();
+    settings.analysisApi ??= structuredClone(defaultSettings.analysisApi);
+    for (const [key, value] of Object.entries(defaultSettings.analysisApi)) {
+        if (settings.analysisApi[key] === undefined) {
+            settings.analysisApi[key] = structuredClone(value);
+        }
+    }
+    settings.analysisApi.prompt ||= defaultPrompt;
+    if (!Array.isArray(settings.analysisApi.promptMessages) || !settings.analysisApi.promptMessages.length) {
+        settings.analysisApi.promptMessages = settings.analysisApi.prompt && settings.analysisApi.prompt !== defaultPrompt
+            ? [{ role: 'user', content: settings.analysisApi.prompt }]
+            : structuredClone(defaultAnalysisPromptMessages);
+    }
+    return settings.analysisApi;
 }
 
 function getApiId() {
@@ -306,6 +357,124 @@ function setStatus(text) {
     $('#group_member_presets_director_status').text(text);
 }
 
+function syncSettingsUi() {
+    const analysisApi = getAnalysisApiSettings();
+    $('#group_member_presets_analysis_endpoint').val(analysisApi.endpoint);
+    $('#group_member_presets_analysis_key').val(analysisApi.key);
+    $('#group_member_presets_analysis_model').val(analysisApi.model);
+    $('#group_member_presets_analysis_body_params').val(analysisApi.bodyParams);
+    $('#group_member_presets_analysis_exclude_body_params').val(analysisApi.excludeBodyParams);
+    $('#group_member_presets_analysis_include_tags').val(analysisApi.includeTagRules || analysisApi.includeTags);
+    $('#group_member_presets_analysis_exclude_tags').val(analysisApi.excludeTagRules || analysisApi.excludeTags);
+    renderAnalysisPromptMessages();
+}
+
+function renderAnalysisPromptMessages() {
+    const list = $('#group_member_presets_analysis_prompt_messages');
+    if (!list.length) return;
+
+    const analysisApi = getAnalysisApiSettings();
+    list.empty();
+    analysisApi.promptMessages.forEach((message, index) => {
+        const item = $(
+            `<div class="group_member_presets_prompt_message flex-container flexFlowColumn flexGap5 marginTopBot5" data-index="${index}">
+                <div class="flex-container flexGap5 alignitemscenter">
+                    <select class="text_pole textarea_compact group_member_presets_prompt_role">
+                        <option value="system">system</option>
+                        <option value="user">user</option>
+                        <option value="assistant">assistant</option>
+                    </select>
+                    <div class="menu_button menu_button_icon group_member_presets_prompt_up" title="Move up"><i class="fa-solid fa-arrow-up"></i></div>
+                    <div class="menu_button menu_button_icon group_member_presets_prompt_down" title="Move down"><i class="fa-solid fa-arrow-down"></i></div>
+                    <div class="menu_button menu_button_icon group_member_presets_prompt_delete" title="Delete"><i class="fa-solid fa-trash"></i></div>
+                </div>
+                <textarea class="text_pole textarea_compact group_member_presets_prompt_content" rows="7"></textarea>
+            </div>`,
+        );
+        item.find('.group_member_presets_prompt_role').val(message.role || 'user');
+        item.find('.group_member_presets_prompt_content').val(message.content || '');
+        list.append(item);
+    });
+}
+
+function bindSettingsUi() {
+    if (!$('#group_member_presets_analysis_endpoint').length) return false;
+    syncSettingsUi();
+    $('#group_member_presets_analysis_endpoint, #group_member_presets_analysis_key, #group_member_presets_analysis_model, #group_member_presets_analysis_body_params, #group_member_presets_analysis_exclude_body_params, #group_member_presets_analysis_include_tags, #group_member_presets_analysis_exclude_tags')
+        .off('input.groupMemberPresets change.groupMemberPresets')
+        .on('input.groupMemberPresets change.groupMemberPresets', function () {
+            const analysisApi = getAnalysisApiSettings();
+            analysisApi.endpoint = String($('#group_member_presets_analysis_endpoint').val() || '').trim();
+            analysisApi.key = String($('#group_member_presets_analysis_key').val() || '');
+            analysisApi.model = String($('#group_member_presets_analysis_model').val() || '').trim();
+            analysisApi.bodyParams = String($('#group_member_presets_analysis_body_params').val() || '');
+            analysisApi.excludeBodyParams = String($('#group_member_presets_analysis_exclude_body_params').val() || '');
+            analysisApi.includeTagRules = String($('#group_member_presets_analysis_include_tags').val() || '');
+            analysisApi.excludeTagRules = String($('#group_member_presets_analysis_exclude_tags').val() || '');
+            saveSettingsDebounced();
+        });
+    $('#group_member_presets_analysis_prompt_messages')
+        .off('input.groupMemberPresets change.groupMemberPresets click.groupMemberPresets')
+        .on('input.groupMemberPresets change.groupMemberPresets', '.group_member_presets_prompt_role, .group_member_presets_prompt_content', savePromptMessagesFromUi)
+        .on('click.groupMemberPresets', '.group_member_presets_prompt_up, .group_member_presets_prompt_down, .group_member_presets_prompt_delete', function () {
+            const analysisApi = getAnalysisApiSettings();
+            const index = Number($(this).closest('.group_member_presets_prompt_message').attr('data-index'));
+            if (!Number.isInteger(index)) return;
+            if ($(this).hasClass('group_member_presets_prompt_delete')) {
+                analysisApi.promptMessages.splice(index, 1);
+            } else if ($(this).hasClass('group_member_presets_prompt_up') && index > 0) {
+                [analysisApi.promptMessages[index - 1], analysisApi.promptMessages[index]] = [analysisApi.promptMessages[index], analysisApi.promptMessages[index - 1]];
+            } else if ($(this).hasClass('group_member_presets_prompt_down') && index < analysisApi.promptMessages.length - 1) {
+                [analysisApi.promptMessages[index + 1], analysisApi.promptMessages[index]] = [analysisApi.promptMessages[index], analysisApi.promptMessages[index + 1]];
+            }
+            if (!analysisApi.promptMessages.length) {
+                analysisApi.promptMessages.push({ role: 'user', content: '' });
+            }
+            renderAnalysisPromptMessages();
+            saveSettingsDebounced();
+        });
+    $('#group_member_presets_analysis_prompt_add')
+        .off('click.groupMemberPresets')
+        .on('click.groupMemberPresets', function () {
+            getAnalysisApiSettings().promptMessages.push({ role: 'user', content: '' });
+            renderAnalysisPromptMessages();
+            saveSettingsDebounced();
+        });
+    $('#group_member_presets_analysis_prompt_reset')
+        .off('click.groupMemberPresets')
+        .on('click.groupMemberPresets', function () {
+            getAnalysisApiSettings().promptMessages = structuredClone(defaultAnalysisPromptMessages);
+            renderAnalysisPromptMessages();
+            saveSettingsDebounced();
+        });
+    return true;
+}
+
+function savePromptMessagesFromUi() {
+    const analysisApi = getAnalysisApiSettings();
+    analysisApi.promptMessages = $('#group_member_presets_analysis_prompt_messages .group_member_presets_prompt_message').toArray().map(element => {
+        const item = $(element);
+        return {
+            role: String(item.find('.group_member_presets_prompt_role').val() || 'user'),
+            content: String(item.find('.group_member_presets_prompt_content').val() || ''),
+        };
+    });
+    saveSettingsDebounced();
+}
+
+function observeSettingsUi() {
+    settingsObserver?.disconnect();
+    if (bindSettingsUi()) return;
+
+    settingsObserver = new MutationObserver(() => {
+        if (bindSettingsUi()) {
+            settingsObserver?.disconnect();
+            settingsObserver = null;
+        }
+    });
+    settingsObserver.observe(document.body, { childList: true, subtree: true });
+}
+
 function getLatestUserInput() {
     const textarea = String($('#send_textarea').val() || '').trim();
     if (textarea) return textarea;
@@ -356,10 +525,15 @@ async function analyzeAction() {
     if (!input) return toastr.warning('No user input to analyze.', 'Director Mode');
 
     setStatus('Analyzing action...');
-    const prompt = director.prompt
-        .replace(/{{characters}}/g, roleCharacters.map(character => character.name).join(', '))
-        .replace(/{{input}}/g, input);
-    const result = await generateRaw({ prompt, systemPrompt: 'Return JSON only.' });
+    let result;
+    try {
+        result = await generateActionAnalysis(roleCharacters, input);
+    } catch (error) {
+        console.error(`[${MODULE_NAME}] Action analysis failed`, error);
+        setStatus(`Analysis failed: ${error.message}`);
+        toastr.error(error.message, 'Director Mode');
+        return;
+    }
     const orderedAvatars = parseAnalysisResult(result, roleCharacters);
 
     if (!orderedAvatars.length) {
@@ -373,6 +547,183 @@ async function analyzeAction() {
     const disabled = group.members.filter(avatar => !orderedAvatars.includes(avatar));
     await setDisabledMembers(group, disabled);
     setStatus(`Analysis finished. Action order: ${orderedAvatars.map(avatar => getCharacterByAvatar(avatar)?.name).filter(Boolean).join(' -> ')}`);
+}
+
+function parseJsonObject(value, label) {
+    const text = String(value || '').trim();
+    if (!text) return {};
+    try {
+        const parsed = JSON.parse(text);
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+            throw new Error(`${label} must be a JSON object.`);
+        }
+        return parsed;
+    } catch (error) {
+        throw new Error(`${label} is not valid JSON: ${error.message}`);
+    }
+}
+
+function getExcludedBodyParams(value) {
+    return String(value || '')
+        .split(/[\n,]/)
+        .map(x => x.trim())
+        .filter(Boolean);
+}
+
+function escapeRegex(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getTagRules(value) {
+    return String(value || '')
+        .split(/\n/)
+        .map(x => x.trim())
+        .filter(Boolean)
+        .flatMap(line => line.includes('=>') ? [line] : line.split(',').map(x => x.trim()).filter(Boolean))
+        .map(rule => {
+            const separator = rule.includes('=>') ? '=>' : '|';
+            const parts = rule.split(separator).map(x => x.trim()).filter(Boolean);
+            if (parts.length >= 2) {
+                return { start: parts[0], end: parts.slice(1).join(separator) };
+            }
+
+            const tag = parts[0]?.replace(/^<\/?/, '').replace(/>$/, '');
+            return tag ? { start: `<${tag}>`, end: `</${tag}>` } : null;
+        })
+        .filter(Boolean);
+}
+
+function filterTextByTags(text, includeRules, excludeRules) {
+    let result = String(text || '');
+    const includes = getTagRules(includeRules);
+    const excludes = getTagRules(excludeRules);
+
+    if (includes.length) {
+        const matches = [];
+        for (const rule of includes) {
+            const regex = new RegExp(`${escapeRegex(rule.start)}([\\s\\S]*?)${escapeRegex(rule.end)}`, 'gi');
+            for (const match of result.matchAll(regex)) {
+                matches.push(match[1].trim());
+            }
+        }
+        result = matches.join('\n\n');
+    }
+
+    for (const rule of excludes) {
+        const regex = new RegExp(`${escapeRegex(rule.start)}[\\s\\S]*?${escapeRegex(rule.end)}`, 'gi');
+        result = result.replace(regex, '');
+    }
+
+    return result.trim();
+}
+
+async function getActionAnalysisWorldInfo(input, roleCharacters) {
+    const visibleChat = getVisibleChatMessages();
+    const chatForWI = visibleChat
+        .map(message => world_info_include_names ? `${message.name}: ${message.mes}` : message.mes)
+        .filter(Boolean)
+        .reverse();
+    if (input) {
+        chatForWI.unshift(input);
+    }
+
+    const fields = roleCharacters.length === 1
+        ? getCharacterCardFields({ chid: getCharacterIdByAvatar(roleCharacters[0].avatar) })
+        : getCharacterCardFields();
+    const globalScanData = {
+        personaDescription: fields.persona,
+        characterDescription: roleCharacters.map(character => character.description || character.data?.description || '').filter(Boolean).join('\n'),
+        characterPersonality: roleCharacters.map(character => character.personality || character.data?.personality || '').filter(Boolean).join('\n'),
+        characterDepthPrompt: fields.charDepthPrompt,
+        scenario: fields.scenario,
+        creatorNotes: fields.creatorNotes,
+        trigger: 'normal',
+    };
+    return await getWorldInfoPrompt(chatForWI, max_context, false, globalScanData);
+}
+
+function getVisibleChatMessages() {
+    return chat.filter(message => message?.mes && !message.is_system);
+}
+
+function getAnalysisContextText(input) {
+    const messages = getVisibleChatMessages().map(message => `${message.name || (message.is_user ? 'User' : 'Assistant')}: ${message.mes}`);
+    if (input && !messages[messages.length - 1]?.includes(input)) {
+        messages.push(`User: ${input}`);
+    }
+    return messages.join('\n\n');
+}
+
+function getAnalysisFormatText(roleCharacters, input) {
+    return `## 输出格式
+Return JSON only in this format: {"actors":["Character Name 1","Character Name 2"]}
+Include only characters that need to take action now. Sort them in the likely action order.
+Available action-role characters: ${roleCharacters.map(character => character.name).join(', ')}
+Latest user input: ${input}`;
+}
+
+function renderAnalysisPromptMessageContent(content, replacements) {
+    return String(content || '')
+        .replace(/{{worldInfo}}/g, replacements.worldInfo)
+        .replace(/{{context}}/g, replacements.context)
+        .replace(/{{format}}/g, replacements.format)
+        .replace(/{{characters}}/g, replacements.characters)
+        .replace(/{{input}}/g, replacements.input);
+}
+
+async function generateActionAnalysis(roleCharacters, input) {
+    const analysisApi = getAnalysisApiSettings();
+    if (!analysisApi.endpoint) {
+        throw new Error('Configure the action analysis API endpoint in extension settings first.');
+    }
+
+    const worldInfo = await getActionAnalysisWorldInfo(input, roleCharacters);
+    const worldInfoText = [
+        worldInfo.worldInfoBefore,
+        worldInfo.worldInfoString,
+        worldInfo.worldInfoAfter,
+        ...(worldInfo.worldInfoDepth || []).map(entry => entry.entries.join('\n')),
+    ].filter(Boolean).join('\n\n');
+    const replacements = {
+        worldInfo: filterTextByTags(worldInfoText, analysisApi.includeTagRules || analysisApi.includeTags, analysisApi.excludeTagRules || analysisApi.excludeTags),
+        context: filterTextByTags(getAnalysisContextText(input), analysisApi.includeTagRules || analysisApi.includeTags, analysisApi.excludeTagRules || analysisApi.excludeTags),
+        format: getAnalysisFormatText(roleCharacters, input),
+        characters: roleCharacters.map(character => character.name).join(', '),
+        input,
+    };
+    const messages = analysisApi.promptMessages.map(message => ({
+        role: ['system', 'user', 'assistant'].includes(message.role) ? message.role : 'user',
+        content: renderAnalysisPromptMessageContent(message.content, replacements),
+    })).filter(message => message.content.trim());
+    if (!messages.length) {
+        throw new Error('Configure at least one action analysis prompt message.');
+    }
+    const body = {
+        ...parseJsonObject(analysisApi.bodyParams, 'Body parameters'),
+        model: analysisApi.model,
+        messages,
+    };
+    for (const key of getExcludedBodyParams(analysisApi.excludeBodyParams)) {
+        delete body[key];
+    }
+    if (!body.model) {
+        delete body.model;
+    }
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (analysisApi.key) {
+        headers.Authorization = `Bearer ${analysisApi.key}`;
+    }
+    const response = await fetch(analysisApi.endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        throw new Error(`Action analysis API failed: ${response.status} ${await response.text()}`);
+    }
+    const data = await response.json();
+    return data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.content ?? JSON.stringify(data);
 }
 
 async function confirmAction() {
@@ -403,18 +754,12 @@ async function confirmAction() {
 }
 
 async function editAnalysisPrompt() {
-    const group = getCurrentGroup();
-    if (!group) return;
-    const director = getDirectorSettings(group.id);
-    const value = await callGenericPrompt(director.prompt);
-    if (value !== null) {
-        director.prompt = value || defaultPrompt;
-        saveSettingsDebounced();
+    const target = document.getElementById('group_member_presets_analysis_prompt_messages');
+    if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
     }
-}
-
-async function callGenericPrompt(value) {
-    return await Popup.show.input('Edit Director Mode action analysis prompt', 'Available macros: {{characters}}, {{input}}', value, { rows: 10 });
+    toastr.info('Open the extension settings to edit action analysis prompt messages.', 'Director Mode');
 }
 
 function getPresetSnapshot() {
@@ -521,6 +866,7 @@ function observeMemberList() {
 
 export async function init() {
     getSettings();
+    observeSettingsUi();
     ensureDirectorControls();
     observeMemberList();
     decorateGroupMembers();
