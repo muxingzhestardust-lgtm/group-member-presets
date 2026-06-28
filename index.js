@@ -4,10 +4,10 @@ import {
     event_types,
     main_api,
     saveSettingsDebounced,
-} from '../../../script.js';
-import { extension_settings, renderExtensionTemplateAsync } from '../../extensions.js';
-import { getPresetManager } from '../../preset-manager.js';
-import { groups, selected_group } from '../../group-chats.js';
+} from '/script.js';
+import { extension_settings, renderExtensionTemplateAsync } from '/scripts/extensions.js';
+import { getPresetManager } from '/scripts/preset-manager.js';
+import { groups, selected_group } from '/scripts/group-chats.js';
 
 export { MODULE_NAME };
 
