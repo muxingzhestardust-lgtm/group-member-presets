@@ -14,22 +14,13 @@ export { MODULE_NAME };
 const MODULE_NAME = 'groupMemberPresets';
 
 const defaultSettings = {
-    enabled: false,
     /** @type {Record<string, Record<string, Record<string, string>>>} groupId -> avatar -> apiId -> presetName */
     groups: {},
 };
 
-const managedPresetTypes = ['api', 'context', 'instruct', 'sysprompt', 'reasoning'];
 let restoreSnapshot = null;
 let isApplyingPreset = false;
-
-async function renderSettingsTemplate() {
-    const response = await fetch(new URL('settings.html', import.meta.url));
-    if (!response.ok) {
-        throw new Error(`Could not load settings template: ${response.status}`);
-    }
-    return response.text();
-}
+let memberListObserver = null;
 
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -45,43 +36,34 @@ function getSettings() {
     return extension_settings[MODULE_NAME];
 }
 
+function getApiId() {
+    return main_api === 'koboldhorde' ? 'kobold' : main_api;
+}
+
 function getCurrentGroup() {
     return selected_group ? groups.find(x => x.id === selected_group) : null;
 }
 
-function getApiId(type) {
-    return type === 'api' ? main_api : type;
-}
-
-function getStorageKey(type) {
-    return type === 'api' ? main_api : type;
-}
-
-function getManager(type) {
-    const apiId = getApiId(type);
+function getManager() {
+    const apiId = getApiId();
     return apiId ? getPresetManager(apiId) : null;
 }
 
-function getPresetNames(type) {
-    const manager = getManager(type);
-    return manager ? manager.getAllPresets() : [];
+function getMemberPreset(groupId, avatar) {
+    return getSettings().groups?.[groupId]?.[avatar]?.[getApiId()] || '';
 }
 
-function getMemberPreset(groupId, avatar, type) {
-    return getSettings().groups?.[groupId]?.[avatar]?.[getStorageKey(type)] || '';
-}
-
-function setMemberPreset(groupId, avatar, type, presetName) {
+function setMemberPreset(groupId, avatar, presetName) {
     const settings = getSettings();
+    const apiId = getApiId();
+
     settings.groups[groupId] ??= {};
     settings.groups[groupId][avatar] ??= {};
 
-    const storageKey = getStorageKey(type);
-
     if (presetName) {
-        settings.groups[groupId][avatar][storageKey] = presetName;
+        settings.groups[groupId][avatar][apiId] = presetName;
     } else {
-        delete settings.groups[groupId][avatar][storageKey];
+        delete settings.groups[groupId][avatar][apiId];
     }
 
     if (Object.keys(settings.groups[groupId][avatar]).length === 0) {
@@ -94,15 +76,26 @@ function setMemberPreset(groupId, avatar, type, presetName) {
     saveSettingsDebounced();
 }
 
-function createPresetSelect(group, character, type) {
-    const select = $('<select class="text_pole flex1"></select>')
-        .attr('data-avatar', character.avatar)
-        .attr('data-preset-type', type);
+function getCharacterFromMemberElement(memberElement) {
+    const chid = Number(memberElement.attr('data-chid'));
+    return Number.isInteger(chid) ? characters[chid] : null;
+}
 
-    select.append($('<option></option>', { value: '', text: 'Use current' }));
+function createPresetSelect(group, character) {
+    const manager = getManager();
+    const select = $('<select class="text_pole textarea_compact group_member_preset_select"></select>')
+        .attr('title', 'AI Response Configuration preset for this group member')
+        .attr('data-avatar', character.avatar);
 
-    const selectedName = getMemberPreset(group.id, character.avatar, type);
-    for (const presetName of getPresetNames(type)) {
+    select.append($('<option></option>', { value: '', text: 'Preset: current' }));
+
+    if (!manager) {
+        select.prop('disabled', true);
+        return select;
+    }
+
+    const selectedName = getMemberPreset(group.id, character.avatar);
+    for (const presetName of manager.getAllPresets()) {
         select.append($('<option></option>', {
             value: presetName,
             text: presetName,
@@ -110,85 +103,75 @@ function createPresetSelect(group, character, type) {
         }));
     }
 
-    select.on('change', function () {
-        setMemberPreset(group.id, character.avatar, type, String($(this).val() || ''));
+    select.on('click', event => event.stopPropagation());
+    select.on('change', function (event) {
+        event.stopPropagation();
+        setMemberPreset(group.id, character.avatar, String($(this).val() || ''));
     });
 
     return select;
 }
 
-function renderMembers() {
-    const settings = getSettings();
-    $('#group_member_presets_enabled').prop('checked', !!settings.enabled);
+function decorateGroupMember(memberElement, group) {
+    if (memberElement.find('.group_member_preset_select').length) {
+        return;
+    }
 
-    const container = $('#group_member_presets_members');
-    const status = $('#group_member_presets_status');
-    container.empty();
+    const character = getCharacterFromMemberElement(memberElement);
+    if (!character) {
+        return;
+    }
+
+    const iconBlock = memberElement.find('.group_member_icon').first();
+    if (!iconBlock.length) {
+        return;
+    }
+
+    const select = createPresetSelect(group, character);
+    const anchor = iconBlock.find('[data-action="enable"]').first();
+    if (anchor.length) {
+        anchor.after(select);
+    } else {
+        iconBlock.prepend(select);
+    }
+}
+
+function decorateGroupMembers() {
+    if (isApplyingPreset) {
+        return;
+    }
 
     const group = getCurrentGroup();
     if (!group) {
-        status.text('Open a group chat to configure per-member presets.');
         return;
     }
 
-    const members = group.members
-        .map(avatar => characters.find(character => character.avatar === avatar))
-        .filter(Boolean);
-
-    if (!members.length) {
-        status.text('This group has no available members.');
-        return;
-    }
-
-    status.text(`Configuring ${members.length} member(s) for group: ${group.name}`);
-
-    for (const character of members) {
-        const block = $('<div class="list-group-item flex-container flexFlowColumn flexGap5"></div>');
-        block.append($('<b></b>').text(character.name));
-
-        for (const type of managedPresetTypes) {
-            const manager = getManager(type);
-            const apiId = getApiId(type);
-            const row = $('<label class="flex-container alignitemscenter flexGap5"></label>');
-            row.append($('<span class="width100px"></span>').text(type === 'api' ? `API (${apiId || 'none'})` : type));
-
-            if (!manager) {
-                row.append($('<small class="opacity50p"></small>').text('Preset manager unavailable'));
-            } else {
-                row.append(createPresetSelect(group, character, type));
-            }
-
-            block.append(row);
-        }
-
-        container.append(block);
-    }
+    $('.rm_group_members .group_member').each(function () {
+        decorateGroupMember($(this), group);
+    });
 }
 
 function getPresetSnapshot() {
-    const snapshot = {};
-    for (const type of managedPresetTypes) {
-        const manager = getManager(type);
-        if (!manager) continue;
-
-        snapshot[type] = {
-            apiId: getApiId(type),
-            presetName: manager.getSelectedPresetName(),
-            presetValue: manager.getSelectedPreset(),
-        };
+    const manager = getManager();
+    if (!manager) {
+        return null;
     }
-    return snapshot;
+
+    return {
+        apiId: getApiId(),
+        presetValue: manager.getSelectedPreset(),
+    };
 }
 
-function selectPresetByName(type, presetName) {
+function selectPresetByName(presetName) {
     if (!presetName) return;
 
-    const manager = getManager(type);
+    const manager = getManager();
     if (!manager) return;
 
     const value = manager.findPreset(presetName);
     if (value === undefined || value === null) {
-        console.warn(`[${MODULE_NAME}] Preset not found for ${getApiId(type)}: ${presetName}`);
+        console.warn(`[${MODULE_NAME}] AI response preset not found for ${getApiId()}: ${presetName}`);
         return;
     }
 
@@ -205,13 +188,11 @@ function selectPresetByName(type, presetName) {
 }
 
 async function onGroupWrapperStarted() {
-    if (!getSettings().enabled) return;
     restoreSnapshot = getPresetSnapshot();
 }
 
 async function onGroupMemberDrafted(chId) {
-    const settings = getSettings();
-    if (!settings.enabled || !selected_group) return;
+    if (!selected_group) return;
 
     const character = characters[chId];
     if (!character) return;
@@ -220,12 +201,8 @@ async function onGroupMemberDrafted(chId) {
         restoreSnapshot = getPresetSnapshot();
     }
 
-    const memberSettings = settings.groups?.[selected_group]?.[character.avatar];
-    if (!memberSettings) return;
-
-    for (const type of managedPresetTypes) {
-        selectPresetByName(type, memberSettings[getStorageKey(type)]);
-    }
+    const presetName = getSettings().groups?.[selected_group]?.[character.avatar]?.[getApiId()];
+    selectPresetByName(presetName);
 }
 
 async function onGroupWrapperFinished() {
@@ -234,45 +211,39 @@ async function onGroupWrapperFinished() {
     const snapshot = restoreSnapshot;
     restoreSnapshot = null;
 
-    for (const type of managedPresetTypes) {
-        const item = snapshot[type];
-        if (!item) continue;
+    const manager = getManager();
+    if (!manager || snapshot.apiId !== getApiId()) {
+        return;
+    }
 
-        const manager = getManager(type);
-        if (!manager || item.apiId !== getApiId(type)) continue;
-
-        isApplyingPreset = true;
-        try {
-            manager.selectPreset(item.presetValue);
-        } finally {
-            isApplyingPreset = false;
-        }
+    isApplyingPreset = true;
+    try {
+        manager.selectPreset(snapshot.presetValue);
+    } finally {
+        isApplyingPreset = false;
     }
 }
 
-function onSettingsChanged() {
-    if (!isApplyingPreset) {
-        renderMembers();
+function observeMemberList() {
+    memberListObserver?.disconnect();
+    const target = document.querySelector('#rm_group_members');
+    if (!target) {
+        return;
     }
+
+    memberListObserver = new MutationObserver(() => decorateGroupMembers());
+    memberListObserver.observe(target, { childList: true, subtree: true });
 }
 
 export async function init() {
-    const settingsHtml = await renderSettingsTemplate();
-    $('#extensions_settings2').append(settingsHtml);
-
     getSettings();
-    renderMembers();
+    observeMemberList();
+    decorateGroupMembers();
 
-    $('#group_member_presets_enabled').on('input', function () {
-        getSettings().enabled = !!$(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    $('#group_member_presets_refresh').on('click', renderMembers);
-
-    eventSource.on(event_types.CHAT_CHANGED, renderMembers);
-    eventSource.on(event_types.GROUP_UPDATED, renderMembers);
-    eventSource.on(event_types.SETTINGS_UPDATED, onSettingsChanged);
+    eventSource.on('groupSelected', decorateGroupMembers);
+    eventSource.on(event_types.CHAT_CHANGED, decorateGroupMembers);
+    eventSource.on(event_types.GROUP_UPDATED, decorateGroupMembers);
+    eventSource.on(event_types.SETTINGS_UPDATED, decorateGroupMembers);
     eventSource.on(event_types.GROUP_WRAPPER_STARTED, onGroupWrapperStarted);
     eventSource.on(event_types.GROUP_MEMBER_DRAFTED, onGroupMemberDrafted);
     eventSource.on(event_types.GROUP_WRAPPER_FINISHED, onGroupWrapperFinished);

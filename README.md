@@ -1,16 +1,12 @@
-# Group Member Presets
+# Group Member Response Presets
 
-SillyTavern extension that allows each member in a group chat to use separate generation presets.
+SillyTavern extension that allows each member in a group chat to use a separate AI Response Configuration preset.
 
 ## Features
 
-- Switches presets before each drafted group member generates a reply.
+- Adds an AI Response Configuration preset dropdown next to each group member's mute/unmute controls.
+- Switches the active main API response preset before each drafted group member generates a reply.
 - Restores the original presets when the group generation finishes.
-- Supports the active main API preset and advanced formatting presets:
-  - Context
-  - Instruct
-  - System Prompt
-  - Reasoning
 - Stores configuration in `extension_settings.groupMemberPresets`.
 
 ## Installation
@@ -25,11 +21,9 @@ Then restart or refresh SillyTavern.
 
 ## Usage
 
-1. Open `Extensions`.
-2. Open `Group Member Presets`.
-3. Enable `Enable per-member presets in group chats`.
-4. Open a group chat.
-5. Assign presets for each group member.
-6. Generate group replies normally.
+1. Open a group chat.
+2. Open `Group Controls`.
+3. In `Current Members`, use the preset dropdown next to each member's mute/unmute controls.
+4. Generate group replies normally.
 
 Empty preset selections keep the currently active preset.

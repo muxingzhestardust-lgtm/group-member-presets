@@ -1,5 +1,5 @@
 {
-    "display_name": "Group Member Presets",
+    "display_name": "Group Member Response Presets",
     "loading_order": 45,
     "requires": [],
     "js": "index.js",
