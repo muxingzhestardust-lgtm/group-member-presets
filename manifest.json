@@ -1,0 +1,12 @@
+{
+    "display_name": "Group Member Presets",
+    "loading_order": 45,
+    "requires": [],
+    "js": "index.js",
+    "author": "OpenCode",
+    "version": "1.0.0",
+    "homePage": "https://github.com/SillyTavern/SillyTavern",
+    "hooks": {
+        "activate": "init"
+    }
+}

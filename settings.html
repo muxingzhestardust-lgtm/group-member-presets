@@ -1,0 +1,26 @@
+<div id="group_member_presets_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Group Member Presets</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <label class="checkbox_label" for="group_member_presets_enabled" title="When enabled, presets are switched before each group member generates a reply.">
+                <input id="group_member_presets_enabled" type="checkbox" />
+                <span>Enable per-member presets in group chats</span>
+            </label>
+            <small>
+                Select a group, then assign presets for each member below. Empty values keep the current preset.
+                Presets are restored after the group generation finishes.
+            </small>
+            <div class="marginTopBot5">
+                <div id="group_member_presets_refresh" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                    <span>Refresh members</span>
+                </div>
+            </div>
+            <div id="group_member_presets_status" class="marginTopBot5 opacity50p"></div>
+            <div id="group_member_presets_members" class="flex-container flexFlowColumn flexGap5"></div>
+        </div>
+    </div>
+</div>
