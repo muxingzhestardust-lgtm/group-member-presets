@@ -5,7 +5,7 @@ import {
     main_api,
     saveSettingsDebounced,
 } from '/script.js';
-import { extension_settings, renderExtensionTemplateAsync } from '/scripts/extensions.js';
+import { extension_settings } from '/scripts/extensions.js';
 import { getPresetManager } from '/scripts/preset-manager.js';
 import { groups, selected_group } from '/scripts/group-chats.js';
 
@@ -22,6 +22,14 @@ const defaultSettings = {
 const managedPresetTypes = ['api', 'context', 'instruct', 'sysprompt', 'reasoning'];
 let restoreSnapshot = null;
 let isApplyingPreset = false;
+
+async function renderSettingsTemplate() {
+    const response = await fetch(new URL('settings.html', import.meta.url));
+    if (!response.ok) {
+        throw new Error(`Could not load settings template: ${response.status}`);
+    }
+    return response.text();
+}
 
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -249,7 +257,7 @@ function onSettingsChanged() {
 }
 
 export async function init() {
-    const settingsHtml = await renderExtensionTemplateAsync('group-member-presets', 'settings');
+    const settingsHtml = await renderSettingsTemplate();
     $('#extensions_settings2').append(settingsHtml);
 
     getSettings();
