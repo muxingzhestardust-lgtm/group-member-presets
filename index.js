@@ -7,12 +7,12 @@ import {
     generateRaw,
     getRequestHeaders,
     main_api,
-    saveChatConditional,
     saveSettingsDebounced,
 } from '/script.js';
 import { extension_settings } from '/scripts/extensions.js';
 import { getPresetManager } from '/scripts/preset-manager.js';
 import { groups, selected_group } from '/scripts/group-chats.js';
+import { hideChatMessageRange } from '/scripts/chats.js';
 import { Popup } from '/scripts/popup.js';
 
 export { MODULE_NAME };
@@ -496,25 +496,18 @@ async function onGroupWrapperFinished() {
     }
 
     if (director?.hideAfterNarration) {
-        hideRoleMessages(director);
+        await hideRoleMessages(director);
         director.hideAfterNarration = false;
         saveSettingsDebounced();
-        await saveChatConditional();
     }
 }
 
-function hideRoleMessages(director) {
+async function hideRoleMessages(director) {
     const start = Number(director.lastRoleMessageStart ?? -1);
-    const end = Number(director.lastRoleMessageEnd ?? -1);
-    if (start < 0 || end <= start) return;
+    const end = Number(director.lastRoleMessageEnd ?? -1) - 1;
+    if (start < 0 || end < start) return;
 
-    for (let index = start; index < end; index++) {
-        const message = chat[index];
-        if (!message || message.is_user || message.is_system) continue;
-        message.extra ??= {};
-        message.extra.display_text = '[Director Mode role action hidden]';
-        $(`#chat .mes[mesid="${index}"] .mes_text`).text(message.extra.display_text);
-    }
+    await hideChatMessageRange(start, end, false);
 }
 
 function observeMemberList() {

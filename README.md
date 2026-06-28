@@ -11,6 +11,7 @@ SillyTavern extension that allows each member in a group chat to use a separate 
 - Adds Role and Narration category tabs with multi-select member assignment.
 - Analyzes the latest user input to select and order acting Role characters.
 - Generates confirmed Role actions in order, then lets Narration characters respond after the next user instruction.
+- Uses SillyTavern's native message hiding mechanism to hide completed Role action messages.
 - Stores configuration in `extension_settings.groupMemberPresets`.
 
 ## Installation
@@ -40,6 +41,6 @@ Empty preset selections keep the currently active preset.
 4. Click `Analyze Action` to ask the active API which Role characters should act and in what order.
 5. Review the automatically unmuted actors. Adjust manually if needed.
 6. Click `Confirm Action` to generate Role character replies in order.
-7. Send the next user instruction normally. Director Mode will mute Role characters, allow Narration characters to speak, then hide the previous Role action messages.
+7. Send the next user instruction normally. Director Mode will mute Role characters, allow Narration characters to speak, then natively hide the previous Role action messages.
 
 Use `Analysis Prompt` to edit the analysis prompt. Supported macros are `{{characters}}` and `{{input}}`.
