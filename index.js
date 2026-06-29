@@ -10,7 +10,7 @@ import {
     max_context,
     saveSettingsDebounced,
 } from '/script.js';
-import { extension_settings } from '/scripts/extensions.js';
+import { extension_settings, renderExtensionTemplateAsync } from '/scripts/extensions.js';
 import { getPresetManager } from '/scripts/preset-manager.js';
 import { groups, selected_group } from '/scripts/group-chats.js';
 import { hideChatMessageRange } from '/scripts/chats.js';
@@ -73,6 +73,7 @@ let memberListObserver = null;
 let suppressNextWrapperRestore = false;
 let activeCategoryTab = 'roles';
 let settingsObserver = null;
+let settingsRendered = false;
 
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -475,6 +476,17 @@ function observeSettingsUi() {
     settingsObserver.observe(document.body, { childList: true, subtree: true });
 }
 
+async function renderSettingsPanel() {
+    if (settingsRendered || document.getElementById('group_member_presets_settings')) return;
+    const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
+    if (!container) return;
+
+    const settingsHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
+    container.insertAdjacentHTML('beforeend', settingsHtml);
+    settingsRendered = true;
+    bindSettingsUi();
+}
+
 function getLatestUserInput() {
     const textarea = String($('#send_textarea').val() || '').trim();
     if (textarea) return textarea;
@@ -754,8 +766,13 @@ async function confirmAction() {
 }
 
 async function editAnalysisPrompt() {
+    await renderSettingsPanel();
     const target = document.getElementById('group_member_presets_analysis_prompt_messages');
     if (target) {
+        const drawer = $('#group_member_presets_settings .inline-drawer-content');
+        if (drawer.length && !drawer.is(':visible')) {
+            $('#group_member_presets_settings .inline-drawer-toggle').trigger('click');
+        }
         target.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
     }
@@ -866,6 +883,7 @@ function observeMemberList() {
 
 export async function init() {
     getSettings();
+    await renderSettingsPanel();
     observeSettingsUi();
     ensureDirectorControls();
     observeMemberList();
