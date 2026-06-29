@@ -10,7 +10,7 @@ import {
     max_context,
     saveSettingsDebounced,
 } from '/script.js';
-import { extension_settings, renderExtensionTemplateAsync } from '/scripts/extensions.js';
+import { extension_settings } from '/scripts/extensions.js';
 import { getPresetManager } from '/scripts/preset-manager.js';
 import { groups, selected_group } from '/scripts/group-chats.js';
 import { hideChatMessageRange } from '/scripts/chats.js';
@@ -19,7 +19,6 @@ import { getWorldInfoPrompt, world_info_include_names } from '/scripts/world-inf
 export { MODULE_NAME };
 
 const MODULE_NAME = 'groupMemberPresets';
-const EXTENSION_FOLDER = 'group-member-presets';
 const directorStrategyValue = 'director';
 
 const defaultPrompt = `Analyze the user's latest input for a SillyTavern group chat.
@@ -74,6 +73,7 @@ let memberListObserver = null;
 let suppressNextWrapperRestore = false;
 let activeCategoryTab = 'roles';
 let settingsObserver = null;
+let settingsPanelObserver = null;
 let settingsRendered = false;
 
 function getSettings() {
@@ -478,18 +478,38 @@ function observeSettingsUi() {
 }
 
 async function renderSettingsPanel() {
-    if (settingsRendered || document.getElementById('group_member_presets_settings')) return;
+    if (settingsRendered || document.getElementById('group_member_presets_settings')) return true;
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
-    if (!container) return;
+    if (!container) return false;
 
-    const settingsHtml = await renderExtensionTemplateAsync(EXTENSION_FOLDER, 'settings');
-    if (!settingsHtml) {
-        console.warn(`[${MODULE_NAME}] Could not render settings panel.`);
-        return;
+    const settingsUrl = new URL('settings.html', import.meta.url);
+    const response = await fetch(settingsUrl);
+    if (!response.ok) {
+        console.warn(`[${MODULE_NAME}] Could not load settings panel: ${response.status} ${response.statusText}`);
+        return false;
     }
+    const settingsHtml = await response.text();
     container.insertAdjacentHTML('beforeend', settingsHtml);
     settingsRendered = true;
     bindSettingsUi();
+    return true;
+}
+
+function observeSettingsPanel() {
+    settingsPanelObserver?.disconnect();
+    renderSettingsPanel().then(rendered => {
+        if (rendered) return;
+
+        settingsPanelObserver = new MutationObserver(() => {
+            renderSettingsPanel().then(done => {
+                if (done) {
+                    settingsPanelObserver?.disconnect();
+                    settingsPanelObserver = null;
+                }
+            });
+        });
+        settingsPanelObserver.observe(document.body, { childList: true, subtree: true });
+    });
 }
 
 function getLatestUserInput() {
@@ -771,7 +791,9 @@ async function confirmAction() {
 }
 
 async function editAnalysisPrompt() {
-    await renderSettingsPanel();
+    if (!await renderSettingsPanel()) {
+        observeSettingsPanel();
+    }
     const target = document.getElementById('group_member_presets_analysis_prompt_messages');
     if (target) {
         const drawer = $('#group_member_presets_settings .inline-drawer-content');
@@ -888,7 +910,7 @@ function observeMemberList() {
 
 export async function init() {
     getSettings();
-    await renderSettingsPanel();
+    observeSettingsPanel();
     observeSettingsUi();
     ensureDirectorControls();
     observeMemberList();
