@@ -19,6 +19,7 @@ import { getWorldInfoPrompt, world_info_include_names } from '/scripts/world-inf
 export { MODULE_NAME };
 
 const MODULE_NAME = 'groupMemberPresets';
+const EXTENSION_FOLDER = 'group-member-presets';
 const directorStrategyValue = 'director';
 
 const defaultPrompt = `Analyze the user's latest input for a SillyTavern group chat.
@@ -481,7 +482,11 @@ async function renderSettingsPanel() {
     const container = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
     if (!container) return;
 
-    const settingsHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
+    const settingsHtml = await renderExtensionTemplateAsync(EXTENSION_FOLDER, 'settings');
+    if (!settingsHtml) {
+        console.warn(`[${MODULE_NAME}] Could not render settings panel.`);
+        return;
+    }
     container.insertAdjacentHTML('beforeend', settingsHtml);
     settingsRendered = true;
     bindSettingsUi();
