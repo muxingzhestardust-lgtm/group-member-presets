@@ -462,9 +462,15 @@ function bindPromptMessageEditor(list, addButton, resetButton) {
 }
 
 function savePromptMessagesFromUi() {
+    savePromptMessagesFromList($(this).closest('#group_member_presets_analysis_prompt_messages, #group_member_presets_popup_prompt_messages'));
+}
+
+function savePromptMessagesFromList(list) {
     const analysisApi = getAnalysisApiSettings();
-    const list = $(this).closest('#group_member_presets_analysis_prompt_messages, #group_member_presets_popup_prompt_messages');
-    analysisApi.promptMessages = list.find('.group_member_presets_prompt_message').toArray().map(element => {
+    const editor = $(list);
+    if (!editor.length) return;
+
+    analysisApi.promptMessages = editor.find('.group_member_presets_prompt_message').toArray().map(element => {
         const item = $(element);
         return {
             role: String(item.find('.group_member_presets_prompt_role').val() || 'user'),
@@ -801,28 +807,43 @@ async function confirmAction() {
 }
 
 async function editAnalysisPrompt() {
-    const content = $(
-        `<div id="group_member_presets_prompt_popup" class="flex-container flexFlowColumn flexGap5">
-            <small>Messages are sent in order. Supported macros: <code>{{worldInfo}}</code>, <code>{{context}}</code>, <code>{{format}}</code>, <code>{{characters}}</code>, and <code>{{input}}</code>.</small>
-            <div id="group_member_presets_popup_prompt_messages" class="flex-container flexFlowColumn flexGap5"></div>
-            <div class="flex-container flexGap5 marginTopBot5">
-                <div id="group_member_presets_popup_prompt_add" class="menu_button menu_button_icon">
-                    <i class="fa-solid fa-plus"></i><span>Add message</span>
+    try {
+        const content = $(
+            `<div id="group_member_presets_prompt_popup" class="flex-container flexFlowColumn flexGap5">
+                <small>Messages are sent in order. Supported macros: <code>{{worldInfo}}</code>, <code>{{context}}</code>, <code>{{format}}</code>, <code>{{characters}}</code>, and <code>{{input}}</code>.</small>
+                <div id="group_member_presets_popup_prompt_messages" class="flex-container flexFlowColumn flexGap5"></div>
+                <div class="flex-container flexGap5 marginTopBot5">
+                    <div id="group_member_presets_popup_prompt_add" class="menu_button menu_button_icon">
+                        <i class="fa-solid fa-plus"></i><span>Add message</span>
+                    </div>
+                    <div id="group_member_presets_popup_prompt_reset" class="menu_button menu_button_icon">
+                        <i class="fa-solid fa-rotate-left"></i><span>Restore defaults</span>
+                    </div>
                 </div>
-                <div id="group_member_presets_popup_prompt_reset" class="menu_button menu_button_icon">
-                    <i class="fa-solid fa-rotate-left"></i><span>Restore defaults</span>
-                </div>
-            </div>
-        </div>`,
-    );
-    renderAnalysisPromptMessages(content.find('#group_member_presets_popup_prompt_messages'));
-    bindPromptMessageEditor(
-        content.find('#group_member_presets_popup_prompt_messages'),
-        content.find('#group_member_presets_popup_prompt_add'),
-        content.find('#group_member_presets_popup_prompt_reset'),
-    );
-    const popup = new Popup(content, POPUP_TYPE.TEXT, null, { wide: true, large: true, okButton: 'Close' });
-    await popup.show();
+            </div>`,
+        );
+        const promptList = content.find('#group_member_presets_popup_prompt_messages');
+        renderAnalysisPromptMessages(promptList);
+        bindPromptMessageEditor(
+            promptList,
+            content.find('#group_member_presets_popup_prompt_add'),
+            content.find('#group_member_presets_popup_prompt_reset'),
+        );
+        const popup = new Popup(content, POPUP_TYPE.TEXT, '', {
+            wide: true,
+            large: true,
+            allowVerticalScrolling: true,
+            okButton: 'Close',
+            onClosing: () => {
+                savePromptMessagesFromList(promptList);
+                return true;
+            },
+        });
+        await popup.show();
+    } catch (error) {
+        console.error(`[${MODULE_NAME}] Could not open analysis prompt editor`, error);
+        toastr.error(error?.message || 'Could not open analysis prompt editor.', 'Director Mode');
+    }
 }
 
 function getPresetSnapshot() {
