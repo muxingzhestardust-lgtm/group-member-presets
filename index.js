@@ -14,6 +14,7 @@ import { extension_settings } from '/scripts/extensions.js';
 import { getPresetManager } from '/scripts/preset-manager.js';
 import { groups, selected_group } from '/scripts/group-chats.js';
 import { hideChatMessageRange } from '/scripts/chats.js';
+import { Popup, POPUP_TYPE } from '/scripts/popup.js';
 import { getWorldInfoPrompt, world_info_include_names } from '/scripts/world-info.js';
 
 export { MODULE_NAME };
@@ -371,8 +372,8 @@ function syncSettingsUi() {
     renderAnalysisPromptMessages();
 }
 
-function renderAnalysisPromptMessages() {
-    const list = $('#group_member_presets_analysis_prompt_messages');
+function renderAnalysisPromptMessages(target = null) {
+    const list = target ? $(target) : $('#group_member_presets_analysis_prompt_messages');
     if (!list.length) return;
 
     const analysisApi = getAnalysisApiSettings();
@@ -415,7 +416,16 @@ function bindSettingsUi() {
             analysisApi.excludeTagRules = String($('#group_member_presets_analysis_exclude_tags').val() || '');
             saveSettingsDebounced();
         });
-    $('#group_member_presets_analysis_prompt_messages')
+    bindPromptMessageEditor(
+        $('#group_member_presets_analysis_prompt_messages'),
+        $('#group_member_presets_analysis_prompt_add'),
+        $('#group_member_presets_analysis_prompt_reset'),
+    );
+    return true;
+}
+
+function bindPromptMessageEditor(list, addButton, resetButton) {
+    list
         .off('input.groupMemberPresets change.groupMemberPresets click.groupMemberPresets')
         .on('input.groupMemberPresets change.groupMemberPresets', '.group_member_presets_prompt_role, .group_member_presets_prompt_content', savePromptMessagesFromUi)
         .on('click.groupMemberPresets', '.group_member_presets_prompt_up, .group_member_presets_prompt_down, .group_member_presets_prompt_delete', function () {
@@ -432,29 +442,29 @@ function bindSettingsUi() {
             if (!analysisApi.promptMessages.length) {
                 analysisApi.promptMessages.push({ role: 'user', content: '' });
             }
-            renderAnalysisPromptMessages();
+            renderAnalysisPromptMessages(list);
             saveSettingsDebounced();
         });
-    $('#group_member_presets_analysis_prompt_add')
+    addButton
         .off('click.groupMemberPresets')
         .on('click.groupMemberPresets', function () {
             getAnalysisApiSettings().promptMessages.push({ role: 'user', content: '' });
-            renderAnalysisPromptMessages();
+            renderAnalysisPromptMessages(list);
             saveSettingsDebounced();
         });
-    $('#group_member_presets_analysis_prompt_reset')
+    resetButton
         .off('click.groupMemberPresets')
         .on('click.groupMemberPresets', function () {
             getAnalysisApiSettings().promptMessages = structuredClone(defaultAnalysisPromptMessages);
-            renderAnalysisPromptMessages();
+            renderAnalysisPromptMessages(list);
             saveSettingsDebounced();
         });
-    return true;
 }
 
 function savePromptMessagesFromUi() {
     const analysisApi = getAnalysisApiSettings();
-    analysisApi.promptMessages = $('#group_member_presets_analysis_prompt_messages .group_member_presets_prompt_message').toArray().map(element => {
+    const list = $(this).closest('#group_member_presets_analysis_prompt_messages, #group_member_presets_popup_prompt_messages');
+    analysisApi.promptMessages = list.find('.group_member_presets_prompt_message').toArray().map(element => {
         const item = $(element);
         return {
             role: String(item.find('.group_member_presets_prompt_role').val() || 'user'),
@@ -791,19 +801,28 @@ async function confirmAction() {
 }
 
 async function editAnalysisPrompt() {
-    if (!await renderSettingsPanel()) {
-        observeSettingsPanel();
-    }
-    const target = document.getElementById('group_member_presets_analysis_prompt_messages');
-    if (target) {
-        const drawer = $('#group_member_presets_settings .inline-drawer-content');
-        if (drawer.length && !drawer.is(':visible')) {
-            $('#group_member_presets_settings .inline-drawer-toggle').trigger('click');
-        }
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-    }
-    toastr.info('Open the extension settings to edit action analysis prompt messages.', 'Director Mode');
+    const content = $(
+        `<div id="group_member_presets_prompt_popup" class="flex-container flexFlowColumn flexGap5">
+            <small>Messages are sent in order. Supported macros: <code>{{worldInfo}}</code>, <code>{{context}}</code>, <code>{{format}}</code>, <code>{{characters}}</code>, and <code>{{input}}</code>.</small>
+            <div id="group_member_presets_popup_prompt_messages" class="flex-container flexFlowColumn flexGap5"></div>
+            <div class="flex-container flexGap5 marginTopBot5">
+                <div id="group_member_presets_popup_prompt_add" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-plus"></i><span>Add message</span>
+                </div>
+                <div id="group_member_presets_popup_prompt_reset" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-rotate-left"></i><span>Restore defaults</span>
+                </div>
+            </div>
+        </div>`,
+    );
+    renderAnalysisPromptMessages(content.find('#group_member_presets_popup_prompt_messages'));
+    bindPromptMessageEditor(
+        content.find('#group_member_presets_popup_prompt_messages'),
+        content.find('#group_member_presets_popup_prompt_add'),
+        content.find('#group_member_presets_popup_prompt_reset'),
+    );
+    const popup = new Popup(content, POPUP_TYPE.TEXT, null, { wide: true, large: true, okButton: 'Close' });
+    await popup.show();
 }
 
 function getPresetSnapshot() {
