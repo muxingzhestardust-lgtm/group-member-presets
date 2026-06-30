@@ -577,6 +577,11 @@ async function analyzeAction() {
     const input = getLatestUserInput();
     if (!input) return toastr.warning('No user input to analyze.', 'Director Mode');
 
+    console.info(`[${MODULE_NAME}] Starting action analysis`, {
+        groupId: group.id,
+        roles: roleCharacters.map(character => character.name),
+        input,
+    });
     setStatus('Analyzing action...');
     let result;
     try {
@@ -588,6 +593,10 @@ async function analyzeAction() {
         return;
     }
     const orderedAvatars = parseAnalysisResult(result, roleCharacters);
+    console.info(`[${MODULE_NAME}] Parsed action analysis result`, {
+        raw: result,
+        actors: orderedAvatars.map(avatar => getCharacterByAvatar(avatar)?.name).filter(Boolean),
+    });
 
     if (!orderedAvatars.length) {
         await setDisabledMembers(group, group.members.slice());
@@ -767,16 +776,47 @@ async function generateActionAnalysis(roleCharacters, input) {
     if (analysisApi.key) {
         headers.Authorization = `Bearer ${analysisApi.key}`;
     }
-    const response = await fetch(analysisApi.endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
+    console.info(`[${MODULE_NAME}] Sending action analysis request`, {
+        endpoint: analysisApi.endpoint,
+        body,
+        excludedBodyParams: getExcludedBodyParams(analysisApi.excludeBodyParams),
     });
-    if (!response.ok) {
-        throw new Error(`Action analysis API failed: ${response.status} ${await response.text()}`);
+
+    let response;
+    try {
+        response = await fetch(analysisApi.endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+        });
+    } catch (error) {
+        console.error(`[${MODULE_NAME}] Action analysis request failed before receiving a response`, error);
+        throw error;
     }
-    const data = await response.json();
-    return data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.content ?? JSON.stringify(data);
+
+    const responseText = await response.text();
+    console.info(`[${MODULE_NAME}] Received action analysis response`, {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        body: responseText,
+    });
+
+    if (!response.ok) {
+        throw new Error(`Action analysis API failed: ${response.status} ${responseText}`);
+    }
+
+    let data;
+    try {
+        data = JSON.parse(responseText);
+    } catch (error) {
+        console.error(`[${MODULE_NAME}] Action analysis response is not valid JSON`, error, responseText);
+        throw new Error(`Action analysis response is not valid JSON: ${error.message}`);
+    }
+
+    const content = data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? data?.content ?? JSON.stringify(data);
+    console.info(`[${MODULE_NAME}] Extracted action analysis content`, content);
+    return content;
 }
 
 async function confirmAction() {
