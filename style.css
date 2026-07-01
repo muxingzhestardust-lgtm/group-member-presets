@@ -1,0 +1,21 @@
+.group_ppm_preset_select {
+    max-width: 12em;
+    min-width: 6em;
+    height: calc(var(--mainFontSize) + 1.2em);
+    margin: 0 0.5em 0 0;
+    padding: 0 0.4em;
+    font-size: calc(var(--mainFontSize) * 0.9);
+    flex: 1 1 auto;
+    align-self: center;
+}
+
+.group_member .group_member_icon {
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+#group_ppm_settings .notes {
+    display: block;
+    margin-top: 0.5em;
+    opacity: 0.7;
+}

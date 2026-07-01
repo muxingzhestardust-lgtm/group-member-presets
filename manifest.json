@@ -1,11 +1,14 @@
 {
-    "display_name": "Group Member Response Presets",
-    "loading_order": 45,
+    "display_name": "Group Per-Member Presets",
+    "loading_order": 100,
     "requires": [],
+    "optional": [],
     "js": "index.js",
-    "author": "OpenCode",
+    "css": "style.css",
+    "author": "opencode",
     "version": "1.0.0",
     "homePage": "https://github.com/SillyTavern/SillyTavern",
+    "auto_update": false,
     "hooks": {
         "activate": "init"
     }
